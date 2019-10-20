@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-PRETRAIN_PATH = "weights/flownets_EPE1.951.pth.tar"
+PRETRAIN_PATH = "../weights/flownets_EPE1.951.pth.tar"
 
 
 class DeepVO(nn.Module):
@@ -20,33 +20,33 @@ class DeepVO(nn.Module):
         self.conv5_1 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
         self.conv6 = nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=2, padding=1)
 
-        self.convs = [self.conv1, self.conv2, self.conv3, self.conv3_1, self.conv4, self.conv4_1,
-                      self.conv5, self.conv5_1, self.conv6]
-
         self.lstm = nn.LSTM(
-                        input_size=20*6*1024,
+                        input_size=3*10*1024,
                         hidden_size=1000,
                         num_layers=2,
                         batch_first=True)
         self.linear = nn.Linear(1000, 6)
 
-    # def forward(self, cur, previous):
     def forward(self, x):
         batch_size = x.size(0)
         seq_len = x.size(1)
         x = x.view(batch_size*seq_len, x.size(2), x.size(3), x.size(4))
-        for conv in self.convs:
-            x = conv(x)
-            x = self.relu(x)
+        x = self.flow(x)
         x = x.view(batch_size, seq_len, -1)
-        x, hidden = self.lstm(x)
+        x, _ = self.lstm(x)
         x = self.linear(x)
         return x
 
     def flow(self, x):
-        for conv in self.convs:
-            x = conv(x)
-            x = self.relu(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv3_1(x)
+        x = self.conv4(x)
+        x = self.conv4_1(x)
+        x = self.conv5(x)
+        x = self.conv5_1(x)
+        x = self.conv6(x)
         return x
 
     def get_loss(self, seq, pos, ang):
@@ -57,8 +57,8 @@ class DeepVO(nn.Module):
 
 
 
-    def load_pretrained(self):
-        pretrained_flownet = torch.load(PRETRAIN_PATH)
+    def load_pretrained(self, device):
+        pretrained_flownet = torch.load(PRETRAIN_PATH, map_location=device)
         current_state_dict = self.state_dict()
         update_state_dict = {}
         for k, v in pretrained_flownet['state_dict'].items():

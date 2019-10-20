@@ -8,10 +8,13 @@ from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset, DataLoader
 
 kittiTransform = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
+    [transforms.Resize((188, 620)),
+     transforms.ToTensor(),
+     transforms.Normalize((0.5, 0.5, 0.5), (1, 1, 1))]
 )
-SEQ_LENGTH = 10
-
+SEQ_LENGTH = 20
+TRAIN_SEQ = ["00", "02", "08", "09"]
+VALI_SEQ = ["01"]
 
 class KittiOdometryDataset(Dataset):
     def __init__(self, seq, original=False, path="dataset", transform=kittiTransform, left=True, stereo=False):
@@ -37,35 +40,29 @@ class KittiOdometryDataset(Dataset):
         return cur_rgb, cur_odom
 
 
-class KittiStackedOdometryDataset(Dataset):
-    def __init__(self, seq, path="dataset", transform=kittiTransform, left=True, stereo=False):
-        self.odom = pykitti.odometry(path, seq)
-        self.transform = transform
-        self.left = left
-
+class KittiPredefinedDataset(Dataset):
+    def __init__(self, seqs=TRAIN_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
+        self.train_sets = []
+        for seq in seqs:
+            self.train_sets.append(KittiOdometryRandomSequenceDataset(seq))
+        self.idxs = []
+        self.seps = []
+        for name, ts in enumerate(self.train_sets):
+            for i in range(0, len(ts)-SEQ_LENGTH-1, 5):
+                self.idxs.append(i)
+                self.seps.append(name)
+                
     def __len__(self):
-        return len(self.odom) - 1
+        return len(self.seps)
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.to_list()
-        left = 0 if self.left else 1
-
-        cur_rgb = self.transform(self.odom.get_rgb(idx)[left])
-        next_rgb = self.transform(self.odom.get_rgb(idx + 1)[left])
-
-        cur_pos = torch.from_numpy(se3_to_xy(self.odom.poses[idx]))
-        next_pos = torch.from_numpy(se3_to_xy(self.odom.poses[idx]))
-
-        cur_angle = torch.from_numpy(se3_to_euler(self.odom.poses[idx]))
-        next_angle = torch.from_numpy(se3_to_euler(self.odom.poses[idx + 1]))
-
-        return torch.cat((cur_rgb, next_rgb), dim=0), torch.stack((cur_pos, next_pos), dim=0), torch.stack(
-            (cur_angle, next_angle), dim=0)
+        return self.train_sets[self.seps[idx]][self.idxs[idx]]
 
 
 class KittiOdometryRandomSequenceDataset(Dataset):
-    def __init__(self, seq, path="dataset", transform=kittiTransform, left=True, stereo=False):
+    def __init__(self, seq, path="../dataset", transform=kittiTransform, left=True, stereo=False):
         self.odom = pykitti.odometry(path, seq)
         self.transform = transform
         self.left = left
@@ -80,17 +77,19 @@ class KittiOdometryRandomSequenceDataset(Dataset):
         rgb = []
         pos = []
         angle = []
-
+        initial_angle = se3_to_rot(self.odom.poses[idx]).T
+        
         for i in range(SEQ_LENGTH):
             cur_rgb = self.transform(self.odom.get_rgb(idx + i)[left])
             next_rgb = self.transform(self.odom.get_rgb(idx + i + 1)[left])
             cur_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx + i]))
-            next_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx + i]))
-            cur_angle = torch.from_numpy(se3_to_euler(self.odom.poses[idx + i]))
-            next_angle = torch.from_numpy(se3_to_euler(self.odom.poses[idx + i + 1]))
+            next_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx + i + 1]))
+            next_angle = se3_to_rot(self.odom.poses[idx + i + 1])
             rgb.append(torch.cat((cur_rgb, next_rgb), dim=0))
             pos.append(next_pos - cur_pos)
-            angle.append(next_angle - cur_angle)
+            angle.append(next_angle)
+        for i in range(len(angle)):
+            angle[i] = torch.from_numpy(rot_to_euler(initial_angle.dot(angle[i])))
         return torch.stack(rgb), torch.stack(pos).type(torch.float32), torch.stack(angle).type(torch.float32)
 
 
@@ -120,6 +119,27 @@ def load_train_data():
         ))
     return train_loaders
 
+def generate_train_data():
+    train_seq = ["00", "02", "08", "09"]
+    # train_seq = ["00"]
+    train_sets = []
+    for seq in train_seq:
+        train_sets.append(
+            KittiOdometryRandomSequenceDataset(seq)
+        )
+
+    seqs = []
+    poses = []
+    angs = []
+    for ts in train_sets:
+        for i in range(0, len(ts), 5):
+            seq, pos, ang = ts[i]
+            seqs.append(seq)
+            poses.append(pos)
+            angs.append(ang)
+            if (i % 100 == 0):
+                print(i)
+    return seqs, poses, angs
 
 def shuffle_load(train_loaders):
     train_loader = np.random.choice(train_loaders)
@@ -149,7 +169,16 @@ def draw_route(y, y_hat, c_y="r", c_y_hat="b"):
 def se3_to_euler(mat):
     r = mat[:3, :3]
     r = R.from_dcm(r)
-    return r.as_euler('zxy', degrees=True)
+    return r.as_euler('xyz', degrees=True)
+
+
+def rot_to_euler(mat):
+    r = R.from_dcm(mat)
+    return r.as_euler('xyz', degrees=True)
+
+
+def se3_to_rot(mat):
+    return mat[:3, :3]
 
 
 def se3_to_xy(mat):
@@ -166,14 +195,29 @@ def train(model, train_loader, optimizer, device, epoch):
     i = 0
     model.train()
     for seq, pos, ang in train_loader:
+        optimizer.zero_grad()
         i = i + 1
         seq = seq.to(device)
         pos = pos.to(device)
         ang = ang.to(device)
-        optimizer.zero_grad()
         loss = model.get_loss(seq, pos, ang)
         loss.backward()
         optimizer.step()
-        if i % 10 == 0:
+        if i % 5 == 0:
             print(f"{i}th loss: {loss.item()}")
     print(f"Epoch {epoch}th loss: {loss.item()}")
+    return loss.item()
+
+def validate(model, test_loader, optimizer, device, epoch):
+    i = 0
+    model.eval()
+    test_loss = 0.0
+    with torch.no_grad():
+        for seq, pos, ang in test_loader:
+            seq = seq.to(device)
+            pos = pos.to(device)
+            ang = ang.to(device)
+            test_loss += model.get_loss(seq, pos, ang).item()
+    test_loss /= len(test_loss.dataset)
+    print(f"Epoch {epoch}th loss: {test_loss.item()}")
+    return test_loss.item()
