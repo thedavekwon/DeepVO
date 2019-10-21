@@ -12,7 +12,7 @@ kittiTransform = transforms.Compose(
      transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (1, 1, 1))]
 )
-SEQ_LENGTH = 20
+SEQ_LENGTH = 10
 TRAIN_SEQ = ["00", "02", "08", "09"]
 VALI_SEQ = ["01"]
 
@@ -48,7 +48,7 @@ class KittiPredefinedDataset(Dataset):
         self.idxs = []
         self.seps = []
         for name, ts in enumerate(self.train_sets):
-            for i in range(0, len(ts)-SEQ_LENGTH-1, 5):
+            for i in range(0, len(ts)-SEQ_LENGTH-1, 3):
                 self.idxs.append(i)
                 self.seps.append(name)
                 
@@ -78,18 +78,20 @@ class KittiOdometryRandomSequenceDataset(Dataset):
         pos = []
         angle = []
         initial_angle = se3_to_rot(self.odom.poses[idx]).T
-        
+        original_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx]))
         for i in range(SEQ_LENGTH):
             cur_rgb = self.transform(self.odom.get_rgb(idx + i)[left])
             next_rgb = self.transform(self.odom.get_rgb(idx + i + 1)[left])
-            cur_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx + i]))
             next_pos = torch.from_numpy(se3_to_position(self.odom.poses[idx + i + 1]))
             next_angle = se3_to_rot(self.odom.poses[idx + i + 1])
             rgb.append(torch.cat((cur_rgb, next_rgb), dim=0))
-            pos.append(next_pos - cur_pos)
+            pos.append(next_pos)
             angle.append(next_angle)
         for i in range(len(angle)):
-            angle[i] = torch.from_numpy(rot_to_euler(initial_angle.dot(angle[i])))
+            angle[i] = torch.from_numpy(rot_to_euler(np.matmul(initial_angle, angle[i])))
+        pos[0] = pos[0] - original_pos
+        for i in range(1, len(pos)):
+            pos[i] = pos[i] - pos[i-1] - original_pos
         return torch.stack(rgb), torch.stack(pos).type(torch.float32), torch.stack(angle).type(torch.float32)
 
 
@@ -191,9 +193,14 @@ def se3_to_position(mat):
     return t
 
 
+def draw_with_model(model):
+    a = 1
+
+
 def train(model, train_loader, optimizer, device, epoch):
     i = 0
     model.train()
+    train_losses = 0.0
     for seq, pos, ang in train_loader:
         optimizer.zero_grad()
         i = i + 1
@@ -201,12 +208,22 @@ def train(model, train_loader, optimizer, device, epoch):
         pos = pos.to(device)
         ang = ang.to(device)
         loss = model.get_loss(seq, pos, ang)
+        train_losses += loss.item()
         loss.backward()
         optimizer.step()
         if i % 5 == 0:
             print(f"{i}th loss: {loss.item()}")
-    print(f"Epoch {epoch}th loss: {loss.item()}")
-    return loss.item()
+    train_losses /= len(train_loader)
+    print(f"Train Epoch {epoch}th loss: {train_losses}")
+    
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        }, f"../weights/{epoch}.weights")
+    
+    return train_losses
+
 
 def validate(model, test_loader, optimizer, device, epoch):
     i = 0
@@ -218,6 +235,6 @@ def validate(model, test_loader, optimizer, device, epoch):
             pos = pos.to(device)
             ang = ang.to(device)
             test_loss += model.get_loss(seq, pos, ang).item()
-    test_loss /= len(test_loss.dataset)
-    print(f"Epoch {epoch}th loss: {test_loss.item()}")
-    return test_loss.item()
+    test_loss /= len(test_loader)
+    print(f"Validate Epoch {epoch}th loss: {test_loss}")
+    return test_loss
