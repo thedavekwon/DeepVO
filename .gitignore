@@ -5,6 +5,8 @@ lib/
 lib64/
 share/
 weights/
+weights1/
+weights0/
 models/
 .idea/
 pyvenv.cfg
