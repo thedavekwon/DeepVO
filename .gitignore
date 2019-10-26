@@ -7,6 +7,8 @@ share/
 weights/
 weights1/
 weights0/
+weights11/
+weights00/
 models/
 .idea/
 pyvenv.cfg

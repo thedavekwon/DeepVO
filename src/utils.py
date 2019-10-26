@@ -243,6 +243,7 @@ def draw_gt(seq):
     plt.plot(x, y, color="g", label="ground truth")
 
 def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
+    plt.clf()
     x = [v[0] for v in y]
     y = [v[2] for v in y]
     plt.plot(x, y, color=c_y, label="ground truth")
@@ -251,6 +252,7 @@ def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
     y = [v[5] for v in y_hat]
     plt.plot(x, y, color=c_y_hat, label="ground truth")
     plt.savefig(f"../{weight_folder}/"+name)
+    plt.gca().set_aspect('equal', adjustable='datalim')
 
     
 def eulerAnglesToRotationMatrix(theta) :
