@@ -11,9 +11,7 @@ from PIL import Image
 import os, sys
 import torch.optim as optims
 import math
-from radam import RAdam
 
-# epsilon value 
 _EPS = np.finfo(float).eps * 4.0
 
 kittiTransform = transforms.Compose(
@@ -22,7 +20,6 @@ kittiTransform = transforms.Compose(
         transforms.ToTensor()
     ]
 )
-
 
 normalizer = transforms.Compose(
     [
@@ -129,6 +126,9 @@ class KittiOdometryRandomSequenceDataset(Dataset):
         rgb = []
         pos = []
         angle = []
+#         print(self.odom.poses[idx][:3,:3])
+#         print(euler_from_matrix(self.odom.poses[idx]))
+#         print(idx)
         original_angle = torch.FloatTensor(euler_from_matrix(self.odom.poses[idx]))
         original_pos = torch.FloatTensor(se3_to_position(self.odom.poses[idx]))
         original_rot = se3_to_rot(self.odom.poses[idx]).T
@@ -198,6 +198,7 @@ def transform_data():
 
 def generate_train_data():
     train_seq = ["00", "02", "08", "09"]
+    # train_seq = ["00"]
     train_sets = []
     for seq in train_seq:
         train_sets.append(
@@ -272,8 +273,10 @@ def eulerAnglesToRotationMatrix(theta) :
 
 
 def euler_from_matrix(matrix):
+
     # y-x-z Tait–Bryan angles intrincic
     # the method code is taken from https://github.com/awesomebytes/delta_robot/blob/master/src/transformations.py
+
     i = 2
     j = 0
     k = 1
@@ -309,7 +312,6 @@ def euler_from_matrix(matrix):
     if frame:
         ax, az = az, ax
     return ax, ay, az
-
 
 def euler_to_rot(euler):
     r = R.from_euler('zyx', euler, degrees=True)
@@ -407,23 +409,20 @@ def load_pretrained(model, optimizer, path, device):
     optimizer.load_state_dict(optimizer_current_state_dict)
 
     
-def load_model(device, optimizer, lr=0.001, path=""):
+def load_model(device, path=""):
     if path != "":
         model = DeepVO()
         model.to(device)
-        if optimizer == "adagrad":
-            optimizer = optims.Adagrad(model.parameters(), lr=lr)
-        if optimizer == "radam":
-            optimizer = RAdam(model.parameters(), lr=lr)
+        optimizer = optims.Adagrad(model.parameters(), lr=0.001)
         load_pretrained(model, optimizer, path, device)
-        cur = int(path.split("/")[-1].split(".")[0])
+#         cur = int(path.split("/")[-1].split(".")[0])
+        cur = 0
     else:
         model = DeepVO()
         model.load_pretrained(device)
         model.to(device)
 
-        if optimizer == None:
-            optimizer = optims.Adagrad(model.parameters(), lr=lr)
+        optimizer = optims.Adagrad(model.parameters(), lr=0.001)
         cur = 0
     return cur, model, optimizer
     
