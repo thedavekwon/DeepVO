@@ -1,21 +1,24 @@
+import math
+import os
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pykitti
 import torch
+import torch.optim as optims
 import torchvision.transforms as transforms
+from PIL import Image
 from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset, DataLoader
+
 from model import DeepVO
-from PIL import Image
-import os, sys
-import torch.optim as optims
-import math
 from radam import RAdam
 
-# epsilon value 
-_EPS = np.finfo(float).eps * 4.0
+# epsilon value for euler transformation
+EPS = np.finfo(float).eps * 4.0
 
+# reduce the size of the input image
 kittiTransform = transforms.Compose(
     [
         transforms.Resize((620, 188)),
@@ -23,7 +26,8 @@ kittiTransform = transforms.Compose(
     ]
 )
 
-
+# I initially naively did (0.5, 0.5, 0.5) and (1, 1, 1)
+# value found using function from https://github.com/ChiWeiHsiao/DeepVO-pytorch/blob/master/preprocess.py
 normalizer = transforms.Compose(
     [
         transforms.Normalize(
@@ -33,14 +37,16 @@ normalizer = transforms.Compose(
     ]
 )
 
-
-
+# Hyper Paramter to choose subsequence size
 SEQ_LENGTH = 4
+
 VALI_LENGTH = 500
 TRAIN_SEQ = ["00", "02", "08", "09"]
-VALI_SEQ = ["01", "03", "05", "06"]
-TEST_SEQ = ["01"]
+VALI_SEQ = ["01"]
+TEST_SEQ = ["03", "05", "06", "10"]
 
+
+# Not used but fundamental kitti dataset
 class KittiOdometryDataset(Dataset):
     def __init__(self, seq, original=False, path="dataset", transform=kittiTransform, left=True, stereo=False):
         self.odom = pykitti.odometry(path, seq)
@@ -64,7 +70,7 @@ class KittiOdometryDataset(Dataset):
 
         return cur_rgb, cur_odom
 
-
+# for predefined kitti
 class KittiPredefinedDataset(Dataset):
     def __init__(self, seqs=TRAIN_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
         self.train_sets = []
@@ -73,10 +79,10 @@ class KittiPredefinedDataset(Dataset):
         self.idxs = []
         self.seps = []
         for name, ts in enumerate(self.train_sets):
-            for i in range(len(ts)-SEQ_LENGTH-1):
+            for i in range(len(ts) - SEQ_LENGTH - 1):
                 self.idxs.append(i)
                 self.seps.append(name)
-                
+
     def __len__(self):
         return len(self.seps)
 
@@ -85,6 +91,7 @@ class KittiPredefinedDataset(Dataset):
             idx = idx.to_list()
         return self.train_sets[self.seps[idx]][self.idxs[idx]]
 
+# for validation set where I want to reduce the length of dataset to VALI_LENGTH
 class KittiPredefinedValidationDataset(Dataset):
     def __init__(self, seqs=VALI_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
         self.train_sets = []
@@ -93,7 +100,7 @@ class KittiPredefinedValidationDataset(Dataset):
         self.idxs = []
         self.seps = []
         for name, ts in enumerate(self.train_sets):
-            for i in range(0, len(ts)-SEQ_LENGTH-1):
+            for i in range(0, len(ts) - SEQ_LENGTH - 1):
                 self.idxs.append(i)
                 self.seps.append(name)
         np.random.seed(42)
@@ -102,7 +109,7 @@ class KittiPredefinedValidationDataset(Dataset):
         self.seps = np.stack(self.seps)
         self.idxs = self.idxs[rand_idxs]
         self.seps = self.seps[rand_idxs]
-                
+
     def __len__(self):
         return VALI_LENGTH
 
@@ -111,9 +118,10 @@ class KittiPredefinedValidationDataset(Dataset):
             idx = idx.to_list()
         return self.train_sets[self.seps[idx]][self.idxs[idx]]
 
-
+# base dataset to load the subsequences and do preprocessing
 class KittiOdometryRandomSequenceDataset(Dataset):
-    def __init__(self, seq, path="../dataset", transform=kittiTransform, normalizer=normalizer, left=True, stereo=False):
+    def __init__(self, seq, path="../dataset", transform=kittiTransform, normalizer=normalizer, left=True,
+                 stereo=False):
         self.odom = pykitti.odometry(path, seq)
         self.transform = transform
         self.left = left
@@ -149,88 +157,46 @@ class KittiOdometryRandomSequenceDataset(Dataset):
         rgb = torch.stack(rgb)
         pos = torch.stack(pos)
         angle = torch.stack(angle)
-        
+
+        # preprocessing
         pos[1:] = pos[1:] - original_pos
         angle[1:] = angle[1:] - original_angle
-        
+
         for i in range(1, len(pos)):
             loc = torch.FloatTensor(original_rot.dot(pos[i]))
             pos[i][:] = loc[:]
-            
+
         pos[2:] = pos[2:] - pos[1:-1]
         angle[2:] = angle[2:] - angle[1:-1]
-        
+
         for i in range(1, len(angle)):
             angle[i][0] = normalize_angle_delta(angle[i][0])
-        
+
         return rgb, pos, angle
 
-def load_test_data():
-    test_seq = ["03", "04", "05", "06", "07", "10"]
-    test_loader = DataLoader(
-        KittiOdometryDataset(test_seq[0], original=True), batch_size=1, shuffle=False, num_workers=0,
-        collate_fn=my_collate
-    )
-    return test_loader
-
-
-def load_train_data():
-    train_seq = ["00", "02", "08", "09"]
-
-    train_loaders = []
-    for seq in train_seq:
-        train_loaders.append(DataLoader(
-            KittiOdometryRandomSequenceDataset(), batch_size=8, shuffle=True, num_workers=0, collate_fn=my_collate
-        ))
-    return train_loaders
-
+# if we want to resize the entire original dataset before preprocessing
 def transform_data():
     path = "../dataset/sequences/"
     seqs = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
     for seq in seqs:
-        dirs = os.listdir( path+seq+"/image_2")
+        dirs = os.listdir(path + seq + "/image_2")
         for item in dirs:
-            if os.path.isfile(path+seq+"/image_2/"+item):
-                im = Image.open(path+seq+"/image_2/"+item)
-                f, e = os.path.splitext(path+seq+"/image_2/"+item)
+            if os.path.isfile(path + seq + "/image_2/" + item):
+                im = Image.open(path + seq + "/image_2/" + item)
+                f, e = os.path.splitext(path + seq + "/image_2/" + item)
                 imResize = im.resize((620, 188))
                 imResize.save(f + '.png', 'PNG', quality=100)
 
-def generate_train_data():
-    train_seq = ["00", "02", "08", "09"]
-    train_sets = []
-    for seq in train_seq:
-        train_sets.append(
-            KittiOdometryRandomSequenceDataset(seq)
-        )
 
-    seqs = []
-    poses = []
-    angs = []
-    for ts in train_sets:
-        for i in range(0, len(ts), SEQ_LENGTH):
-            seq, pos, ang = ts[i]
-            seqs.append(seq)
-            poses.append(pos)
-            angs.append(ang)
-            if (i % 100 == 0):
-                print(i)
-    return seqs, poses, angs
-
-def shuffle_load(train_loaders):
-    train_loader = np.random.choice(train_loaders)
-    x = iter(train_loader).next()
-    return x
-
-
-def play_sequence():
-    tl = load_test_data()
+# play sequence of images in opencv
+def play_sequence(tl):
     for s in tl:
         image = s[0][0]
         opencvImage = cv2.cvtColor(np.array(image), cv2.CV_16U)
         cv2.imshow("seq", opencvImage)
         cv2.waitKey(1)
 
+# draw ground truth
 def draw_gt(seq):
     x = []
     y = []
@@ -241,6 +207,7 @@ def draw_gt(seq):
         y.append(t[2])
     plt.plot(x, y, color="g", label="ground truth")
 
+# draw ground truth and predicted
 def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
     plt.clf()
     x = [v[0] for v in y]
@@ -250,24 +217,24 @@ def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
     x = [v[3] for v in y_hat]
     y = [v[5] for v in y_hat]
     plt.plot(x, y, color=c_y_hat, label="ground truth")
-    plt.savefig(f"../{weight_folder}/"+name)
+    plt.savefig(f"../{weight_folder}/" + name)
     plt.gca().set_aspect('equal', adjustable='datalim')
 
-    
-def eulerAnglesToRotationMatrix(theta) :
-    R_x = np.array([[1,         0,                  0                   ],
-                    [0,         np.cos(theta[0]), -np.sin(theta[0]) ],
-                    [0,         np.sin(theta[0]), np.cos(theta[0])  ]
+
+def eulerAnglesToRotationMatrix(theta):
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(theta[0]), -np.sin(theta[0])],
+                    [0, np.sin(theta[0]), np.cos(theta[0])]
                     ])
-    R_y = np.array([[np.cos(theta[1]),    0,      np.sin(theta[1])  ],
-                    [0,                     1,      0                   ],
-                    [-np.sin(theta[1]),   0,      np.cos(theta[1])  ]
+    R_y = np.array([[np.cos(theta[1]), 0, np.sin(theta[1])],
+                    [0, 1, 0],
+                    [-np.sin(theta[1]), 0, np.cos(theta[1])]
                     ])
-    R_z = np.array([[np.cos(theta[2]),    -np.sin(theta[2]),    0],
-                    [np.sin(theta[2]),    np.cos(theta[2]),     0],
-                    [0,                     0,                      1]
+    R_z = np.array([[np.cos(theta[2]), -np.sin(theta[2]), 0],
+                    [np.sin(theta[2]), np.cos(theta[2]), 0],
+                    [0, 0, 1]
                     ])
-    R = np.dot(R_z, np.dot( R_y, R_x ))
+    R = np.dot(R_z, np.dot(R_y, R_x))
     return R
 
 
@@ -281,27 +248,26 @@ def euler_from_matrix(matrix):
     frame = 1
     parity = 0
 
-
     M = np.array(matrix, dtype=np.float64, copy=False)[:3, :3]
     if repetition:
-        sy = math.sqrt(M[i, j]*M[i, j] + M[i, k]*M[i, k])
-        if sy > _EPS:
-            ax = math.atan2( M[i, j],  M[i, k])
-            ay = math.atan2( sy,       M[i, i])
-            az = math.atan2( M[j, i], -M[k, i])
+        sy = math.sqrt(M[i, j] * M[i, j] + M[i, k] * M[i, k])
+        if sy > EPS:
+            ax = math.atan2(M[i, j], M[i, k])
+            ay = math.atan2(sy, M[i, i])
+            az = math.atan2(M[j, i], -M[k, i])
         else:
-            ax = math.atan2(-M[j, k],  M[j, j])
-            ay = math.atan2( sy,       M[i, i])
+            ax = math.atan2(-M[j, k], M[j, j])
+            ay = math.atan2(sy, M[i, i])
             az = 0.0
     else:
-        cy = math.sqrt(M[i, i]*M[i, i] + M[j, i]*M[j, i])
-        if cy > _EPS:
-            ax = math.atan2( M[k, j],  M[k, k])
-            ay = math.atan2(-M[k, i],  cy)
-            az = math.atan2( M[j, i],  M[i, i])
+        cy = math.sqrt(M[i, i] * M[i, i] + M[j, i] * M[j, i])
+        if cy > EPS:
+            ax = math.atan2(M[k, j], M[k, k])
+            ay = math.atan2(-M[k, i], cy)
+            az = math.atan2(M[j, i], M[i, i])
         else:
-            ax = math.atan2(-M[j, k],  M[j, j])
-            ay = math.atan2(-M[k, i],  cy)
+            ax = math.atan2(-M[j, k], M[j, j])
+            ay = math.atan2(-M[k, i], cy)
             az = 0.0
 
     if parity:
@@ -340,21 +306,22 @@ def se3_to_position(mat):
     t = mat[:, -1][:-1]
     return t
 
+# due to -pi to pi discontinuity
 def normalize_angle_delta(angle):
-    if(angle > np.pi):
+    if (angle > np.pi):
         angle = angle - 2 * np.pi
-    elif(angle < -np.pi):
+    elif (angle < -np.pi):
         angle = 2 * np.pi + angle
     return angle
 
 
 def test(model, dataloader, device, test_seq=TEST_SEQ):
     model.eval()
-    answer = [[0.0]*6]
+    answer = [[0.0] * 6]
     gt = []
     odom = pykitti.odometry("../dataset", test_seq[0])
     for i in range(len(odom)):
-        gt.append(se3_to_position(odom.poses[i]))    
+        gt.append(se3_to_position(odom.poses[i]))
     for i, batch in enumerate(dataloader):
         seq, pos, ang = batch
         seq = seq.to(device)
@@ -376,7 +343,7 @@ def test(model, dataloader, device, test_seq=TEST_SEQ):
             last_pose = pose[-1]
             for j in range(len(last_pose)):
                 last_pose[j] = last_pose[j] + answer[-1][j]
-            last_pose[0] = (last_pose[0] + np.pi) % (2*np.pi) - np.pi
+            last_pose[0] = (last_pose[0] + np.pi) % (2 * np.pi) - np.pi
             answer.append(last_pose.tolist())
     return gt, answer
 
@@ -387,10 +354,10 @@ def load_pretrained(model, optimizer, path, device):
     model_update_state_dict = {}
     optimizer_current_state_dict = optimizer.state_dict()
     optimizer_update_state_dict = {}
-    
+
     if path.split('/')[-1] == 'pretrained.weights':
-        pretrained = {'model_state_dict':pretrained}
-        
+        pretrained = {'model_state_dict': pretrained}
+
     if 'model_state_dict' in pretrained.keys():
         for k, v in pretrained['model_state_dict'].items():
             if k in model_current_state_dict.keys():
@@ -399,14 +366,14 @@ def load_pretrained(model, optimizer, path, device):
         for k, v in pretrained['optimizer_state_dict'].items():
             if k in optimizer_current_state_dict.keys():
                 optimizer_update_state_dict[k] = v
-            
+
     model_current_state_dict.update(model_update_state_dict)
     optimizer_current_state_dict.update(optimizer_update_state_dict)
 
     model.load_state_dict(model_current_state_dict)
     optimizer.load_state_dict(optimizer_current_state_dict)
 
-    
+
 def load_model(device, optimizer, lr=0.001, path=""):
     if path != "":
         model = DeepVO()
@@ -426,8 +393,8 @@ def load_model(device, optimizer, lr=0.001, path=""):
             optimizer = optims.Adagrad(model.parameters(), lr=lr)
         cur = 0
     return cur, model, optimizer
-    
-    
+
+
 def train(model, train_loader, optimizer, device, epoch, weight_folder):
     i = 0
     model.train()
@@ -441,21 +408,21 @@ def train(model, train_loader, optimizer, device, epoch, weight_folder):
         ang = ang.to(device)
         loss = model.get_loss(seq, pos, ang)
         train_losses += loss.item()
-        immediate_losses+= loss.item()
+        immediate_losses += loss.item()
         loss.backward()
         optimizer.step()
         if i % 200 == 0:
-            print(f"{i}th loss: {immediate_losses/200}")
+            print(f"{i}th loss: {immediate_losses / 200}")
             immediate_losses = 0.0
     train_losses /= len(train_loader)
     print(f"Train Epoch {epoch}th loss: {train_losses}")
-    
+
     if (epoch % 5 == 0):
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            }, f"../{weight_folder}/{epoch}.weights")
+        }, f"../{weight_folder}/{epoch}.weights")
     return train_losses
 
 

@@ -11,4 +11,5 @@ weights11/
 weights00/
 models/
 .idea/
+venv/
 pyvenv.cfg
