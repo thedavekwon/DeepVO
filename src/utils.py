@@ -70,6 +70,7 @@ class KittiOdometryDataset(Dataset):
 
         return cur_rgb, cur_odom
 
+
 # for predefined kitti
 class KittiPredefinedDataset(Dataset):
     def __init__(self, seqs=TRAIN_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
@@ -90,6 +91,7 @@ class KittiPredefinedDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.to_list()
         return self.train_sets[self.seps[idx]][self.idxs[idx]]
+
 
 # for validation set where I want to reduce the length of dataset to VALI_LENGTH
 class KittiPredefinedValidationDataset(Dataset):
@@ -117,6 +119,7 @@ class KittiPredefinedValidationDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.to_list()
         return self.train_sets[self.seps[idx]][self.idxs[idx]]
+
 
 # base dataset to load the subsequences and do preprocessing
 class KittiOdometryRandomSequenceDataset(Dataset):
@@ -174,6 +177,7 @@ class KittiOdometryRandomSequenceDataset(Dataset):
 
         return rgb, pos, angle
 
+
 # if we want to resize the entire original dataset before preprocessing
 def transform_data():
     path = "../dataset/sequences/"
@@ -188,13 +192,14 @@ def transform_data():
                 imResize.save(f + '.png', 'PNG', quality=100)
 
 
-# play sequence of images in opencv
+# play sequence of results in opencv
 def play_sequence(tl):
     for s in tl:
         image = s[0][0]
         opencvImage = cv2.cvtColor(np.array(image), cv2.CV_16U)
         cv2.imshow("seq", opencvImage)
         cv2.waitKey(1)
+
 
 # draw ground truth
 def draw_gt(seq):
@@ -206,6 +211,7 @@ def draw_gt(seq):
         x.append(t[0])
         y.append(t[2])
     plt.plot(x, y, color="g", label="ground truth")
+
 
 # draw ground truth and predicted
 def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
@@ -305,6 +311,7 @@ def se3_to_xy(mat):
 def se3_to_position(mat):
     t = mat[:, -1][:-1]
     return t
+
 
 # due to -pi to pi discontinuity
 def normalize_angle_delta(angle):
