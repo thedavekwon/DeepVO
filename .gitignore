@@ -7,5 +7,6 @@ share/
 weights/
 models/
 .idea/
+.vscode/
 venv/
 pyvenv.cfg

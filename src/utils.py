@@ -20,10 +20,7 @@ EPS = np.finfo(float).eps * 4.0
 
 # reduce the size of the input image
 kittiTransform = transforms.Compose(
-    [
-        transforms.Resize((620, 188)),
-        transforms.ToTensor()
-    ]
+    [transforms.Resize((620, 188)), transforms.ToTensor()]
 )
 
 # I initially naively did (0.5, 0.5, 0.5) and (1, 1, 1)
@@ -32,7 +29,7 @@ normalizer = transforms.Compose(
     [
         transforms.Normalize(
             (0.19007764876619865, 0.15170388157131237, 0.10659445665650864),
-            (0.2610784009469139, 0.25729316928935814, 0.25163823815039915)
+            (0.2610784009469139, 0.25729316928935814, 0.25163823815039915),
         )
     ]
 )
@@ -48,7 +45,15 @@ TEST_SEQ = ["03", "05", "06", "10"]
 
 # Not used but fundamental kitti dataset
 class KittiOdometryDataset(Dataset):
-    def __init__(self, seq, original=False, path="dataset", transform=kittiTransform, left=True, stereo=False):
+    def __init__(
+        self,
+        seq,
+        original=False,
+        path="dataset",
+        transform=kittiTransform,
+        left=True,
+        stereo=False,
+    ):
         self.odom = pykitti.odometry(path, seq)
         self.transform = transform
         self.left = left
@@ -73,7 +78,14 @@ class KittiOdometryDataset(Dataset):
 
 # for predefined kitti
 class KittiPredefinedDataset(Dataset):
-    def __init__(self, seqs=TRAIN_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
+    def __init__(
+        self,
+        seqs=TRAIN_SEQ,
+        path="../dataset",
+        transform=kittiTransform,
+        left=True,
+        stereo=False,
+    ):
         self.train_sets = []
         for seq in seqs:
             self.train_sets.append(KittiOdometryRandomSequenceDataset(seq))
@@ -95,7 +107,14 @@ class KittiPredefinedDataset(Dataset):
 
 # for validation set where I want to reduce the length of dataset to VALI_LENGTH
 class KittiPredefinedValidationDataset(Dataset):
-    def __init__(self, seqs=VALI_SEQ, path="../dataset", transform=kittiTransform, left=True, stereo=False):
+    def __init__(
+        self,
+        seqs=VALI_SEQ,
+        path="../dataset",
+        transform=kittiTransform,
+        left=True,
+        stereo=False,
+    ):
         self.train_sets = []
         for seq in seqs:
             self.train_sets.append(KittiOdometryRandomSequenceDataset(seq))
@@ -123,8 +142,15 @@ class KittiPredefinedValidationDataset(Dataset):
 
 # base dataset to load the subsequences and do preprocessing
 class KittiOdometryRandomSequenceDataset(Dataset):
-    def __init__(self, seq, path="../dataset", transform=kittiTransform, normalizer=normalizer, left=True,
-                 stereo=False):
+    def __init__(
+        self,
+        seq,
+        path="../dataset",
+        transform=kittiTransform,
+        normalizer=normalizer,
+        left=True,
+        stereo=False,
+    ):
         self.odom = pykitti.odometry(path, seq)
         self.transform = transform
         self.left = left
@@ -153,7 +179,9 @@ class KittiOdometryRandomSequenceDataset(Dataset):
             cur_rgb = self.normalizer(cur_rgb)
             next_rgb = self.normalizer(next_rgb)
             next_pos = torch.FloatTensor(se3_to_position(self.odom.poses[idx + i + 1]))
-            next_angle = torch.FloatTensor(euler_from_matrix(self.odom.poses[idx + i + 1]))
+            next_angle = torch.FloatTensor(
+                euler_from_matrix(self.odom.poses[idx + i + 1])
+            )
             rgb.append(torch.cat((cur_rgb, next_rgb), dim=0))
             pos.append(next_pos)
             angle.append(next_angle)
@@ -189,7 +217,7 @@ def transform_data():
                 im = Image.open(path + seq + "/image_2/" + item)
                 f, e = os.path.splitext(path + seq + "/image_2/" + item)
                 imResize = im.resize((620, 188))
-                imResize.save(f + '.png', 'PNG', quality=100)
+                imResize.save(f + ".png", "PNG", quality=100)
 
 
 # play sequence of results in opencv
@@ -224,22 +252,31 @@ def draw_route(y, y_hat, name, weight_folder, c_y="r", c_y_hat="b"):
     y = [v[5] for v in y_hat]
     plt.plot(x, y, color=c_y_hat, label="ground truth")
     plt.savefig(f"../{weight_folder}/" + name)
-    plt.gca().set_aspect('equal', adjustable='datalim')
+    plt.gca().set_aspect("equal", adjustable="datalim")
 
 
 def eulerAnglesToRotationMatrix(theta):
-    R_x = np.array([[1, 0, 0],
-                    [0, np.cos(theta[0]), -np.sin(theta[0])],
-                    [0, np.sin(theta[0]), np.cos(theta[0])]
-                    ])
-    R_y = np.array([[np.cos(theta[1]), 0, np.sin(theta[1])],
-                    [0, 1, 0],
-                    [-np.sin(theta[1]), 0, np.cos(theta[1])]
-                    ])
-    R_z = np.array([[np.cos(theta[2]), -np.sin(theta[2]), 0],
-                    [np.sin(theta[2]), np.cos(theta[2]), 0],
-                    [0, 0, 1]
-                    ])
+    R_x = np.array(
+        [
+            [1, 0, 0],
+            [0, np.cos(theta[0]), -np.sin(theta[0])],
+            [0, np.sin(theta[0]), np.cos(theta[0])],
+        ]
+    )
+    R_y = np.array(
+        [
+            [np.cos(theta[1]), 0, np.sin(theta[1])],
+            [0, 1, 0],
+            [-np.sin(theta[1]), 0, np.cos(theta[1])],
+        ]
+    )
+    R_z = np.array(
+        [
+            [np.cos(theta[2]), -np.sin(theta[2]), 0],
+            [np.sin(theta[2]), np.cos(theta[2]), 0],
+            [0, 0, 1],
+        ]
+    )
     R = np.dot(R_z, np.dot(R_y, R_x))
     return R
 
@@ -284,19 +321,19 @@ def euler_from_matrix(matrix):
 
 
 def euler_to_rot(euler):
-    r = R.from_euler('zyx', euler, degrees=True)
+    r = R.from_euler("zyx", euler, degrees=True)
     return r.as_dcm()
 
 
 def se3_to_euler(mat):
     r = np.array(mat, dtype=np.float64)[:3, :3]
     r = R.from_dcm(r)
-    return r.as_euler('zyx', degrees=True)
+    return r.as_euler("zyx", degrees=True)
 
 
 def rot_to_euler(mat):
     r = np.array(mat, dtype=np.float64)
-    return r.as_euler('zyx', degrees=True)
+    return r.as_euler("zyx", degrees=True)
 
 
 def se3_to_rot(mat):
@@ -315,9 +352,9 @@ def se3_to_position(mat):
 
 # due to -pi to pi discontinuity
 def normalize_angle_delta(angle):
-    if (angle > np.pi):
+    if angle > np.pi:
         angle = angle - 2 * np.pi
-    elif (angle < -np.pi):
+    elif angle < -np.pi:
         angle = 2 * np.pi + angle
     return angle
 
@@ -362,15 +399,15 @@ def load_pretrained(model, optimizer, path, device):
     optimizer_current_state_dict = optimizer.state_dict()
     optimizer_update_state_dict = {}
 
-    if path.split('/')[-1] == 'pretrained.weights':
-        pretrained = {'model_state_dict': pretrained}
+    if path.split("/")[-1] == "pretrained.weights":
+        pretrained = {"model_state_dict": pretrained}
 
-    if 'model_state_dict' in pretrained.keys():
-        for k, v in pretrained['model_state_dict'].items():
+    if "model_state_dict" in pretrained.keys():
+        for k, v in pretrained["model_state_dict"].items():
             if k in model_current_state_dict.keys():
                 model_update_state_dict[k] = v
-    if 'optimizer_state_dict' in pretrained.keys():
-        for k, v in pretrained['optimizer_state_dict'].items():
+    if "optimizer_state_dict" in pretrained.keys():
+        for k, v in pretrained["optimizer_state_dict"].items():
             if k in optimizer_current_state_dict.keys():
                 optimizer_update_state_dict[k] = v
 
@@ -387,16 +424,21 @@ def load_model(device, optimizer, lr=0.001, path=""):
         model.to(device)
         if optimizer == "adagrad":
             optimizer = optims.Adagrad(model.parameters(), lr=lr)
-        if optimizer == "radam":
+        elif optimizer == "radam":
             optimizer = RAdam(model.parameters(), lr=lr)
+        elif optimizer == None:
+            optimizer = optims.Adagrad(model.parameters(), lr=lr)
         load_pretrained(model, optimizer, path, device)
         cur = int(path.split("/")[-1].split(".")[0])
     else:
         model = DeepVO()
-        model.load_pretrained(device)
+        model.load_pretrained_flow(device)
         model.to(device)
-
-        if optimizer == None:
+        if optimizer == "adagrad":
+            optimizer = optims.Adagrad(model.parameters(), lr=lr)
+        elif optimizer == "radam":
+            optimizer = RAdam(model.parameters(), lr=lr)
+        elif optimizer == None:
             optimizer = optims.Adagrad(model.parameters(), lr=lr)
         cur = 0
     return cur, model, optimizer
@@ -424,12 +466,15 @@ def train(model, train_loader, optimizer, device, epoch, weight_folder):
     train_losses /= len(train_loader)
     print(f"Train Epoch {epoch}th loss: {train_losses}")
 
-    if (epoch % 5 == 0):
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, f"../{weight_folder}/{epoch}.weights")
+    if epoch % 5 == 0:
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            },
+            f"../{weight_folder}/{epoch}.weights",
+        )
     return train_losses
 
 
