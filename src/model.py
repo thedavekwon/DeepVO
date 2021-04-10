@@ -1,9 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.init import kaiming_normal_
-
-PRETRAIN_FLOW_PATH = "../weights/flownets_bn_EPE2.459.pth.tar"
-
+from constants import *
 
 class DeepVO(nn.Module):
     def __init__(self):
@@ -20,10 +18,8 @@ class DeepVO(nn.Module):
         self.conv6 = conv(512, 1024, 3, 2, 1, 0.2, True)
 
         self.rnn = nn.LSTM(
-            input_size=3 * 10 * 1024,
-            hidden_size=1000,
-            num_layers=2,
-            batch_first=True)
+            input_size=3 * 10 * 1024, hidden_size=1000, num_layers=2, batch_first=True
+        )
         self.rnn_drop = nn.Dropout(0.5)
         self.linear = nn.Linear(1000, 6)
 
@@ -36,7 +32,7 @@ class DeepVO(nn.Module):
                 m.bias_hh_l0.data.zero_()
                 n = m.bias_hh_l0.size(0)
                 start, end = n // 4, n // 2
-                m.bias_hh_l0.data[start:end].fill_(1.)
+                m.bias_hh_l0.data[start:end].fill_(1.0)
 
                 kaiming_normal_(m.weight_ih_l1)
                 kaiming_normal_(m.weight_hh_l1)
@@ -44,7 +40,7 @@ class DeepVO(nn.Module):
                 m.bias_hh_l1.data.zero_()
                 n = m.bias_hh_l1.size(0)
                 start, end = n // 4, n // 2
-                m.bias_hh_l1.data[start:end].fill_(1.)
+                m.bias_hh_l1.data[start:end].fill_(1.0)
 
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -85,24 +81,48 @@ class DeepVO(nn.Module):
         pretrained_flownet = torch.load(pretrained_path, map_location=device)
         current_state_dict = self.state_dict()
         update_state_dict = {}
-        for k, v in pretrained_flownet['state_dict'].items():
+        for k, v in pretrained_flownet["state_dict"].items():
             if k in current_state_dict.keys():
                 update_state_dict[k] = v
         current_state_dict.update(update_state_dict)
         self.load_state_dict(current_state_dict)
+    
+    def save(self, epoch, optimizer, weight_folder=WEIGHT_FOLDER):
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": self.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            },
+            f"{weight_folder}/{epoch}.weights",
+        )
 
 
 def conv(in_channel, out_channel, kernel_size, stride, padding, dropout, bn):
     if bn:
         return nn.Sequential(
-            nn.Conv2d(in_channel, out_channel, kernel_size=kernel_size, stride=stride, padding=padding, bias=False),
+            nn.Conv2d(
+                in_channel,
+                out_channel,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
             nn.BatchNorm2d(out_channel),
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
     else:
         return nn.Sequential(
-            nn.Conv2d(in_channel, out_channel, kernel_size=kernel_size, stride=stride, padding=padding, bias=True),
+            nn.Conv2d(
+                in_channel,
+                out_channel,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                bias=True,
+            ),
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )

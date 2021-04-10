@@ -2,7 +2,15 @@
 * Unofficial PyTorch Implementation of [DeepVO: Towards end-to-end visual odometry with deep Recurrent Convolutional Neural Networks](https://ieeexplore.ieee.org/document/7989236/)
 * Pretrained FlowNet weights from [ClementPinard/FlowNetPytorch](https://github.com/ClementPinard/FlowNetPytorch)
 * RAdam Optimizer from [LiyuanLucasLiu/RAdam](https://github.com/LiyuanLucasLiu/RAdam)
+* [Kitti Dataset](http://www.cvlibs.net/datasets/kitti/eval_odometry.php)
 * Midterm for ECE471 Deep Learning Cooper Union
+# Usage
+```
+# Install Kitti Dataset from http://www.cvlibs.net/datasets/kitti/eval_odometry.php
+# Edit src/params.py to change hyperparameter 
+python3 src/main.py
+```
+
 # Results
 ### Training Sequence
 * sequence 00 \
