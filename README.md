@@ -6,8 +6,9 @@
 * Midterm for ECE471 Deep Learning Cooper Union
 # Usage
 ```
-# Install Kitti Dataset from http://www.cvlibs.net/datasets/kitti/eval_odometry.php
-# Edit src/params.py to change hyperparameter 
+# Download Kitti Dataset from http://www.cvlibs.net/datasets/kitti/eval_odometry.php
+# Download pretrained FlowNet weight
+# Edit src/params.py to change hyperparameter and paths 
 python3 src/main.py
 ```
 
